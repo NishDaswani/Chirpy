@@ -1,23 +1,40 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/NishDaswani/Chirpy/internal/database"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 func main() {
+	godotenv.Load()
 	const filepathRoot = "."
 	const port = "8080"
 
+	dbURL := os.Getenv("DB_URL")
+	platform := os.Getenv("PLATFORM")
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		log.Fatalf("Error connecting to the database: %v", err)
+		return
+	}
+	dbQeuries := database.New(db)
+
 	mux := http.NewServeMux()
-	apiCfg := apiConfig{}
+	apiCfg := apiConfig{db: dbQeuries, PLATFORM: platform}
 	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServer))
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.handlerMetrics)
 	mux.HandleFunc("GET /api/healthz", handlerReadiness)
-	mux.HandleFunc("POST /admin/reset", apiCfg.resetMetrics)
-	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
+	mux.HandleFunc("POST /admin/reset", apiCfg.deleteUsers)
+	mux.HandleFunc("POST /api/users", apiCfg.handlerCreateUser)
+	mux.HandleFunc("POST /api/chirps", apiCfg.handlerCreateChirp)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)

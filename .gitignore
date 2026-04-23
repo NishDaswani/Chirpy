@@ -1,0 +1,19 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+
+# IDE/editor
+.idea/
+.vscode/
+
+# Build/test artifacts
+bin/
+dist/
+tmp/
+out/
+coverage.out
+*.test

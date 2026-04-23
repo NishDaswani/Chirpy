@@ -39,3 +39,12 @@ func respondWithCleanText(msg string) string {
 	cleanText := strings.Join(splitMsg, " ")
 	return cleanText
 }
+
+func validateAndCleanChirp(post string) (string, error) {
+	const errorMsg = "Chirp is too long"
+	if len(post) > 140 {
+		return "", fmt.Errorf(errorMsg)
+	} else {
+		return respondWithCleanText(post), nil
+	}
+}
