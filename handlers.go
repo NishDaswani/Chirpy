@@ -20,10 +20,12 @@ const adminMetrics = `
 </html>`
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
 }
 
 type Chirp struct {
@@ -128,6 +130,19 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Authentication
+	tokenString, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unable to get authentication token")
+		return
+	}
+
+	gotUserID, err := auth.ValidateJWT(tokenString, cfg.JWTSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "user is unauthorized")
+		return
+	}
+
 	defer r.Body.Close()
 
 	type CreateChirpRequest struct {
@@ -148,7 +163,7 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 
 	params := database.CreateChirpParams{
 		Body:   cleanPost,
-		UserID: post.UserID,
+		UserID: gotUserID,
 	}
 
 	dbChirp, err := cfg.db.CreateChirp(r.Context(), params)
@@ -162,7 +177,7 @@ func (cfg *apiConfig) handlerCreateChirp(w http.ResponseWriter, r *http.Request)
 		CreatedAt: dbChirp.CreatedAt,
 		UpdatedAt: dbChirp.UpdatedAt,
 		Body:      dbChirp.Body,
-		UserID:    dbChirp.UserID,
+		UserID:    gotUserID,
 	}
 	respondWithJSON(w, http.StatusCreated, chirp)
 }
@@ -205,7 +220,7 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 
 	chirpID, err := uuid.Parse(r.PathValue("chirpID"))
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "unable to parse chirp ID")
+		respondWithError(w, http.StatusBadRequest, "unable to parse chirp ID")
 		return
 	}
 
@@ -237,6 +252,7 @@ func (cfg *apiConfig) handlerValidateLogin(w http.ResponseWriter, r *http.Reques
 		Email    string `json:"email"`
 	}
 	var req Request
+
 	defer r.Body.Close()
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -256,13 +272,84 @@ func (cfg *apiConfig) handlerValidateLogin(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	tokenString, err := auth.MakeJWT(dbUser.ID, cfg.JWTSecret, time.Hour)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error creating access token")
+		return
+	}
+
+	refreshTokenParams := database.CreateRefreshTokenParams{
+		Token:  auth.MakeRefreshToken(),
+		UserID: dbUser.ID,
+	}
+
+	dbRefreshToken, err := cfg.db.CreateRefreshToken(r.Context(), refreshTokenParams)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error creating refresh token")
+		return
+	}
+
 	user := User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+		ID:           dbUser.ID,
+		CreatedAt:    dbUser.CreatedAt,
+		UpdatedAt:    dbUser.UpdatedAt,
+		Email:        dbUser.Email,
+		Token:        tokenString,
+		RefreshToken: dbRefreshToken.Token,
 	}
 
 	respondWithJSON(w, http.StatusOK, user)
 
+}
+
+func (cfg *apiConfig) handlerValidateRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondWithError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	refreshToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unable to get refresh token from authentication header")
+		return
+	}
+
+	dbRefreshToken, err := cfg.db.GetUserByRefreshToken(r.Context(), refreshToken)
+	if err != nil || dbRefreshToken.RevokedAt.Valid || time.Now().UTC().After(dbRefreshToken.ExpiresAt) {
+		respondWithError(w, http.StatusUnauthorized, "error getting user information with refresh token")
+		return
+	}
+
+	token, err := auth.MakeJWT(dbRefreshToken.UserID, cfg.JWTSecret, time.Hour)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error creating access token")
+		return
+	}
+	type AccessToken struct {
+		Token string `json:"token"`
+	}
+
+	accessToken := AccessToken{Token: token}
+
+	respondWithJSON(w, http.StatusOK, accessToken)
+
+}
+
+func (cfg *apiConfig) handlerRevokeRefreshToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondWithError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	refreshToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unable to get refresh token from authentication header")
+		return
+	}
+	if nrows, err := cfg.db.RevokeRefreshToken(r.Context(), refreshToken); err != nil || nrows == 0 {
+		respondWithError(w, http.StatusBadRequest, "refresh token not found")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

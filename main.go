@@ -18,6 +18,7 @@ func main() {
 
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
+	jwt_secret := os.Getenv("JWTSecret")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Error connecting to the database: %v", err)
@@ -26,7 +27,7 @@ func main() {
 	dbQeuries := database.New(db)
 
 	mux := http.NewServeMux()
-	apiCfg := apiConfig{db: dbQeuries, PLATFORM: platform}
+	apiCfg := apiConfig{db: dbQeuries, PLATFORM: platform, JWTSecret: jwt_secret}
 	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServer))
 
@@ -38,6 +39,8 @@ func main() {
 	mux.HandleFunc("GET /api/chirps", apiCfg.handlerGetChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", apiCfg.handlerGetChirp)
 	mux.HandleFunc("POST /api/login", apiCfg.handlerValidateLogin)
+	mux.HandleFunc("POST /api/refresh", apiCfg.handlerValidateRefresh)
+	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevokeRefreshToken)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
