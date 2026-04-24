@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/NishDaswani/Chirpy/internal/auth"
 	"github.com/NishDaswani/Chirpy/internal/database"
 	"github.com/google/uuid"
 )
@@ -79,8 +80,10 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 	}
 	// Create Request Struct
 	type Request struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
+
 	// Defer closing the body & create request var
 	defer r.Body.Close()
 	var req Request
@@ -89,8 +92,20 @@ func (cfg *apiConfig) handlerCreateUser(w http.ResponseWriter, r *http.Request) 
 		respondWithError(w, http.StatusBadRequest, "invalid payload")
 		return
 	}
+
+	hashedPsw, err := auth.HashPassword(req.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "issue hashing password")
+		return
+	}
+
+	params := database.CreateUserParams{
+		Email:          req.Email,
+		HashedPassword: hashedPsw,
+	}
+
 	// Create new User in DB using req var, use r.Context() for cancel/timeout handling
-	dbUser, err := cfg.db.CreateUser(r.Context(), req.Email)
+	dbUser, err := cfg.db.CreateUser(r.Context(), params)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "error creating new user")
 		return
@@ -209,4 +224,45 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondWithJSON(w, http.StatusOK, chirp)
+}
+
+func (cfg *apiConfig) handlerValidateLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		respondWithError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	type Request struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	var req Request
+	defer r.Body.Close()
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+
+	dbUser, err := cfg.db.GetUserByEmail(r.Context(), req.Email)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	ok, err := auth.CheckPasswordHash(req.Password, dbUser.HashedPassword)
+	if err != nil || !ok {
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	user := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+
+	respondWithJSON(w, http.StatusOK, user)
+
 }
