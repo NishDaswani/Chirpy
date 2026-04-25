@@ -7,16 +7,24 @@ package database
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const getChirps = `-- name: GetChirps :many
 SELECT id, created_at, updated_at, body, user_id
 FROM chirps
+WHERE $1::boolean OR user_id = $2::uuid
 ORDER BY created_at
 `
 
-func (q *Queries) GetChirps(ctx context.Context) ([]Chirp, error) {
-	rows, err := q.db.QueryContext(ctx, getChirps)
+type GetChirpsParams struct {
+	IncludeAll bool
+	AuthorID   uuid.UUID
+}
+
+func (q *Queries) GetChirps(ctx context.Context, arg GetChirpsParams) ([]Chirp, error) {
+	rows, err := q.db.QueryContext(ctx, getChirps, arg.IncludeAll, arg.AuthorID)
 	if err != nil {
 		return nil, err
 	}
