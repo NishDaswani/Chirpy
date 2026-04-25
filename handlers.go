@@ -353,3 +353,69 @@ func (cfg *apiConfig) handlerRevokeRefreshToken(w http.ResponseWriter, r *http.R
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (cfg *apiConfig) handlerUpdateLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		respondWithError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	accessToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "unable to get access token from authentication header")
+		return
+	}
+
+	gotUserID, err := auth.ValidateJWT(accessToken, cfg.JWTSecret)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "user is unauthorized")
+		return
+	}
+
+	type UpdateVars struct {
+		Password string `json:"password"`
+		Email    string `json:"email"`
+	}
+	var req UpdateVars
+
+	defer r.Body.Close()
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondWithError(w, http.StatusBadRequest, "invalid payload")
+		return
+	}
+
+	hashedPsw, err := auth.HashPassword(req.Password)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "issue hashing password")
+		return
+	}
+
+	dbUpdateVars := database.UpdateLoginByUserIDParams{
+		ID:             gotUserID,
+		Email:          req.Email,
+		HashedPassword: hashedPsw,
+	}
+
+	dbUser, err := cfg.db.UpdateLoginByUserID(r.Context(), dbUpdateVars)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "error updating user")
+		return
+	}
+
+	type UpdatedUserResponse struct {
+		ID        uuid.UUID `json:"id"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+		Email     string    `json:"email"`
+	}
+
+	user := UpdatedUserResponse{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+
+	respondWithJSON(w, http.StatusOK, user)
+}

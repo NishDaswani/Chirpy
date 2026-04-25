@@ -41,6 +41,7 @@ func main() {
 	mux.HandleFunc("POST /api/login", apiCfg.handlerValidateLogin)
 	mux.HandleFunc("POST /api/refresh", apiCfg.handlerValidateRefresh)
 	mux.HandleFunc("POST /api/revoke", apiCfg.handlerRevokeRefreshToken)
+	mux.HandleFunc("PUT /api/users", apiCfg.handlerUpdateLogin)
 
 	server := &http.Server{Handler: mux, Addr: ":" + port}
 	log.Printf("Serving files from %s on port: %s\n", filepathRoot, port)
