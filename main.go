@@ -19,6 +19,7 @@ func main() {
 	dbURL := os.Getenv("DB_URL")
 	platform := os.Getenv("PLATFORM")
 	jwt_secret := os.Getenv("JWTSecret")
+	polka_key := os.Getenv("POLKA_KEY")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("Error connecting to the database: %v", err)
@@ -27,7 +28,7 @@ func main() {
 	dbQeuries := database.New(db)
 
 	mux := http.NewServeMux()
-	apiCfg := apiConfig{db: dbQeuries, PLATFORM: platform, JWTSecret: jwt_secret}
+	apiCfg := apiConfig{db: dbQeuries, PLATFORM: platform, JWTSecret: jwt_secret, PolkaKey: polka_key}
 	fileServer := http.StripPrefix("/app", http.FileServer(http.Dir(filepathRoot)))
 	mux.Handle("/app/", apiCfg.middlewareMetricsInc(fileServer))
 

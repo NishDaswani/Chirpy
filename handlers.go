@@ -412,6 +412,17 @@ func (cfg *apiConfig) handlerDeleteChirp(w http.ResponseWriter, r *http.Request)
 
 func (cfg *apiConfig) handlerMarkChirpyRed(w http.ResponseWriter, r *http.Request) {
 
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "request does not contain api key")
+		return
+	}
+
+	if apiKey != cfg.PolkaKey {
+		respondWithError(w, http.StatusUnauthorized, "user is not authorized to make this request")
+		return
+	}
+
 	defer r.Body.Close()
 
 	type ChirpyRedWebhook struct {
